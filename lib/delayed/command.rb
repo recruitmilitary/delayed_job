@@ -5,13 +5,13 @@ require 'optparse'
 module Delayed
   class Command
     attr_accessor :worker_count
-    
+
     def initialize(args)
       @files_to_reopen = []
       @options = {:quiet => true}
-      
+
       @worker_count = 1
-      
+
       opts = OptionParser.new do |opts|
         opts.banner = "Usage: #{File.basename($0)} [options] start|stop|restart|run"
 
@@ -28,29 +28,43 @@ module Delayed
         opts.on('--max-priority N', 'Maximum priority of jobs to run.') do |n|
           @options[:max_priority] = n
         end
+        opts.on('-i', '--identifier=n', 'A numeric identifier for the worker.') do |n|
+          @options[:identifier] = n
+        end
         opts.on('-n', '--number_of_workers=workers', "Number of unique workers to spawn") do |worker_count|
           @worker_count = worker_count.to_i rescue 1
         end
       end
       @args = opts.parse!(args)
     end
-  
+
     def daemonize
       ObjectSpace.each_object(File) do |file|
         @files_to_reopen << file unless file.closed?
       end
-      
-      worker_count.times do |worker_index|
-        process_name = worker_count == 1 ? "delayed_job" : "delayed_job.#{worker_index}"
-        Daemons.run_proc(process_name, :dir => "#{RAILS_ROOT}/tmp/pids", :dir_mode => :normal, :ARGV => @args) do |*args|
-          run process_name
+
+      if @worker_count > 1 && @options[:identifier]
+        raise ArgumentError, 'Cannot specify both --number-of-workers and --identifier'
+      elsif @worker_count == 1 && @options[:identifier]
+        process_name = "delayed_job.#{@options[:identifier]}"
+        run_process(process_name)
+      else
+        worker_count.times do |worker_index|
+          process_name = worker_count == 1 ? "delayed_job" : "delayed_job.#{worker_index}"
+          run_process(process_name)
         end
       end
     end
-    
+
+    def run_process(process_name)
+      Daemons.run_proc(process_name, :dir => "#{RAILS_ROOT}/tmp/pids", :dir_mode => :normal, :ARGV => @args) do |*args|
+        run process_name
+      end
+    end
+
     def run(worker_name = nil)
       Dir.chdir(RAILS_ROOT)
-      
+
       # Re-open file handles
       @files_to_reopen.each do |file|
         begin
@@ -59,10 +73,10 @@ module Delayed
         rescue ::Exception
         end
       end
-      
+
       Delayed::Worker.logger = Rails.logger
       ActiveRecord::Base.connection.reconnect!
-      
+
       worker = Delayed::Worker.new(@options)
       worker.name_prefix = "#{worker_name} "
       worker.start
@@ -71,6 +85,6 @@ module Delayed
       STDERR.puts e.message
       exit 1
     end
-    
+
   end
 end
