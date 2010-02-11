@@ -5,18 +5,16 @@ class SimpleJob
   def perform; @@runs += 1; end
 end
 
-class RandomRubyObject  
+class RandomRubyObject
   def say_hello
     'hello'
   end
 end
 
 class StoryReader
-
   def read(story)
     "Epilog: #{story.tell}"
   end
-
 end
 
 describe 'random ruby objects' do
@@ -86,15 +84,15 @@ describe 'random ruby objects' do
     job.payload_object.method.should  == :read
     job.payload_object.args.should    == ["LOAD;Story;#{story.id}"]
     job.payload_object.perform.should == 'Epilog: Once upon...'
-  end                 
-  
+  end
+
   it "should call send later on methods which are wrapped with handle_asynchronously" do
     story = Story.create :text => 'Once upon...'
-  
+
     Delayed::Job.count.should == 0
-  
+
     story.whatever(1, 5)
-  
+
     Delayed::Job.count.should == 1
     job =  Delayed::Job.find(:first)
     job.payload_object.class.should   == Delayed::PerformableMethod
@@ -109,13 +107,13 @@ describe 'random ruby objects' do
         "string".send_at(1.hour.from_now, :length)
       end.should change { Delayed::Job.count }.by(1)
     end
-    
+
     it "should schedule the job in the future" do
       time = 1.hour.from_now
       job = "string".send_at(time, :length)
       job.run_at.should == time
     end
-    
+
     it "should store payload as PerformableMethod" do
       job = "string".send_at(1.hour.from_now, :count, 'r')
       job.payload_object.class.should   == Delayed::PerformableMethod
@@ -123,6 +121,19 @@ describe 'random ruby objects' do
       job.payload_object.args.should    == ['r']
       job.payload_object.perform.should == 1
     end
+  end
+
+  it 'should work with class methods on namespaced ActiveRecord models' do
+    Namespace::Story.send_later(:count)
+
+    Delayed::Job.count.should == 1
+    job = Delayed::Job.find(:first)
+    payload_object = job.payload_object
+
+    payload_object.class.should   == Delayed::PerformableMethod
+    payload_object.method.should  == :count
+    payload_object.args.should    == []
+    payload_object.perform.should == 0
   end
 
 end
